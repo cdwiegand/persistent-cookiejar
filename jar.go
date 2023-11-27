@@ -27,9 +27,9 @@ import (
 )
 
 // PublicSuffixList provides the public suffix of a domain. For example:
-//      - the public suffix of "example.com" is "com",
-//      - the public suffix of "foo1.foo2.foo3.co.uk" is "co.uk", and
-//      - the public suffix of "bar.pvt.k12.ma.us" is "pvt.k12.ma.us".
+//   - the public suffix of "example.com" is "com",
+//   - the public suffix of "foo1.foo2.foo3.co.uk" is "co.uk", and
+//   - the public suffix of "bar.pvt.k12.ma.us" is "pvt.k12.ma.us".
 //
 // Implementations of PublicSuffixList must be safe for concurrent use by
 // multiple goroutines.
@@ -133,7 +133,7 @@ func newAtTime(o *Options, now time.Time) (*Jar, error) {
 			return nil, fmt.Errorf("cannot load cookies: %w", err)
 		}
 	}
-	jar.deleteExpired(now)
+	jar.DeleteExpired(now)
 	return jar, nil
 }
 
@@ -404,13 +404,13 @@ func (j *Jar) merge(entries []entry) {
 
 var expiryRemovalDuration = 24 * time.Hour
 
-// deleteExpired deletes all entries that have expired for long enough
+// DeleteExpired deletes all entries that have expired for long enough
 // that we can actually expect there to be no external copies of it that
 // might resurrect the dead cookie.
-func (j *Jar) deleteExpired(now time.Time) {
+func (j *Jar) DeleteExpired(now time.Time) {
 	for tld, submap := range j.entries {
 		for id, e := range submap {
-			if !e.Expires.After(now) && !e.Updated.Add(expiryRemovalDuration).After(now) {
+			if e.Expires.Before(now) || e.LastAccess.Add(expiryRemovalDuration).Before(now) {
 				delete(submap, id)
 			}
 		}
@@ -712,8 +712,8 @@ func (j *Jar) domainAndType(host, domain string) (string, bool, error) {
 // DefaultCookieFile returns the default cookie file to use
 // for persisting cookie data.
 // The following names will be used in decending order of preference:
-//	- the value of the $GOCOOKIES environment variable.
-//	- $HOME/.go-cookies
+//   - the value of the $GOCOOKIES environment variable.
+//   - $HOME/.go-cookies
 func DefaultCookieFile() string {
 	if f := os.Getenv("GOCOOKIES"); f != "" {
 		return f

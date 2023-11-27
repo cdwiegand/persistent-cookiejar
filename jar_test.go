@@ -1538,7 +1538,7 @@ func TestDeleteExpired(t *testing.T) {
 	now = now.Add(expiryRemovalDuration - time.Millisecond)
 	// Ensure that they've timed out but their entries
 	// are still around before the cutoff period.
-	jar.deleteExpired(now)
+	jar.DeleteExpired(now)
 	got = allCookiesIncludingExpired(jar, now)
 	want = "a= b=b c="
 	if got != want {
@@ -1548,7 +1548,7 @@ func TestDeleteExpired(t *testing.T) {
 	// Try just after the expiry duration. The entries should really have
 	// been removed now.
 	now = now.Add(2 * time.Millisecond)
-	jar.deleteExpired(now)
+	jar.DeleteExpired(now)
 	got = allCookiesIncludingExpired(jar, now)
 	want = "b=b"
 	if got != want {
@@ -1863,13 +1863,13 @@ func TestLockFile(t *testing.T) {
 }
 
 // jarTest encapsulates the following actions on a jar:
-//   1. Perform SetCookies with fromURL and the cookies from setCookies.
-//      (Done at time tNow + 0 ms.)
-//   2. Check that the entries in the jar matches content.
-//      (Done at time tNow + 1001 ms.)
-//   3. For each query in tests: Check that Cookies with toURL yields the
-//      cookies in want.
-//      (Query n done at tNow + (n+2)*1001 ms.)
+//  1. Perform SetCookies with fromURL and the cookies from setCookies.
+//     (Done at time tNow + 0 ms.)
+//  2. Check that the entries in the jar matches content.
+//     (Done at time tNow + 1001 ms.)
+//  3. For each query in tests: Check that Cookies with toURL yields the
+//     cookies in want.
+//     (Query n done at tNow + (n+2)*1001 ms.)
 type jarTest struct {
 	description string   // The description of what this test is supposed to test
 	fromURL     string   // The full URL of the request from which Set-Cookie headers where received

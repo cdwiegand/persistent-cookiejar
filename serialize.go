@@ -60,7 +60,7 @@ func (j *Jar) save(now time.Time) error {
 		// The cookie file is probably corrupt.
 		log.Printf("cannot read cookie file to merge it; ignoring it: %v", err)
 	}
-	j.deleteExpired(now)
+	j.DeleteExpired(now)
 	if err := f.Truncate(0); err != nil {
 		return fmt.Errorf("cannot truncate file: %w", err)
 	}

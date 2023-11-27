@@ -1,4 +1,4 @@
-module github.com/orirawlings/persistent-cookiejar
+module github.com/marmelatze/persistent-cookiejar
 
 go 1.17
 
