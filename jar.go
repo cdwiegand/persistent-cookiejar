@@ -481,18 +481,28 @@ func (j *Jar) setCookies(u *url.URL, cookies []*http.Cookie, now time.Time) {
 		// cookies to websocket connections, for example.
 		return
 	}
-	host, err := canonicalHost(u.Host)
-	if err != nil {
-		return
-	}
-	key := jarKey(host, j.psList)
-	defPath := defaultPath(u.Path)
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	submap := j.entries[key]
 	for _, cookie := range cookies {
+		h := u.Host
+		if cookie.Domain != "" {
+			h = cookie.Domain
+		}
+		host, err := canonicalHost(h)
+		if err != nil {
+			return
+		}
+		key := jarKey(host, j.psList)
+		var defPath string
+		if cookie.Path != "" {
+			defPath = defaultPath(cookie.Path)
+		} else {
+			defPath = defaultPath(u.Path)
+		}
+		submap := j.entries[key]
+
 		e, err := j.newEntry(cookie, now, defPath, host)
 		if err != nil {
 			continue
