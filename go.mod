@@ -1,4 +1,4 @@
-module github.com/marmelatze/persistent-cookiejar
+module github.com/cdwiegand/persistent-cookiejar
 
 go 1.17
 
