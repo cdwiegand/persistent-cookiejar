@@ -1310,10 +1310,10 @@ var mergeTests = []struct {
 }, {
 	description: "max-age is persistent even when negative",
 	setCookies0: []mergeCookie{
-		{atTime(0), "http://www.host.test", "A=a; max-age=10"},
+		{atTime(1), "http://www.host.test", "A=b; max-age=-1"},
 	},
 	setCookies1: []mergeCookie{
-		{atTime(1), "http://www.host.test", "A=b; max-age=-1"},
+		{atTime(1), "http://www.host.test", "A=a; max-age=10"},
 	},
 	now:     atTime(2),
 	content: "",
