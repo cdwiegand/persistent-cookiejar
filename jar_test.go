@@ -1536,7 +1536,7 @@ func TestDeleteExpired(t *testing.T) {
 	now = now.Add(expiryRemovalDuration - time.Millisecond)
 	// Ensure that they've timed out but their entries
 	// are still around before the cutoff period.
-	jar.DeleteExpired(now)
+	jar.deleteExpiredAtTime(now)
 	got = allCookies(jar, now)
 	want = "b=b"
 	if got != want {
@@ -1546,7 +1546,7 @@ func TestDeleteExpired(t *testing.T) {
 	// Try just after the expiry duration. The entries should really have
 	// been removed now.
 	now = now.Add(2 * time.Millisecond)
-	jar.DeleteExpired(now)
+	jar.deleteExpiredAtTime(now)
 	got = allCookies(jar, now)
 	want = ""
 	if got != want {
@@ -1878,7 +1878,7 @@ func setCookies(jar *Jar, fromURL string, cookies []string, now time.Time) {
 		}
 		setCookies[i] = cookies[0]
 	}
-	jar.setCookies(mustParseURL(fromURL), setCookies, now)
+	jar.setCookiesAtTime(mustParseURL(fromURL), setCookies, now)
 }
 
 // allCookies returns all unexpired cookies in the jar
@@ -1913,7 +1913,7 @@ func testQueries(t *testing.T, queries []query, description string, jar *Jar, no
 // in "name1=val1 name2=val2" form.
 func queryJar(jar *Jar, toURL string, now time.Time) string {
 	var s []string
-	for _, c := range jar.cookies(mustParseURL(toURL), now) {
+	for _, c := range jar.cookiesAtTime(mustParseURL(toURL), now) {
 		s = append(s, c.Name+"="+c.Value)
 	}
 	return strings.Join(s, " ")
@@ -2060,9 +2060,9 @@ func TestAllCookies(t *testing.T) {
 		path := filepath.Join(dir, fmt.Sprintf("jar%d", i))
 		jar := newTestJar(path, false)
 		for _, s := range test.set {
-			jar.setCookies(s.url, s.cookies, tNow)
+			jar.setCookiesAtTime(s.url, s.cookies, tNow)
 		}
-		gotCookies := jar.allCookies(tNow)
+		gotCookies := jar.allCookiesAtTime(tNow)
 		if len(gotCookies) != len(test.expectCookies) {
 			t.Fatalf("Test %q: unexpected number of cookies returned, expected: %d, got: %d", test.about, len(test.expectCookies), len(gotCookies))
 		}

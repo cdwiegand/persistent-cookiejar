@@ -133,7 +133,7 @@ func newAtTime(o *Options, now time.Time) (*Jar, error) {
 			return nil, fmt.Errorf("cannot load cookies: %w", err)
 		}
 	}
-	jar.DeleteExpired(now)
+	jar.deleteExpiredAtTime(now)
 	return jar, nil
 }
 
@@ -263,11 +263,11 @@ func (s byPathLength) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 //
 // It returns an empty slice if the URL's scheme is not HTTP or HTTPS.
 func (j *Jar) Cookies(u *url.URL) (cookies []*http.Cookie) {
-	return j.cookies(u, time.Now())
+	return j.cookiesAtTime(u, time.Now())
 }
 
 // cookies is like Cookies but takes the current time as a parameter.
-func (j *Jar) cookies(u *url.URL, now time.Time) (cookies []*http.Cookie) {
+func (j *Jar) cookiesAtTime(u *url.URL, now time.Time) (cookies []*http.Cookie) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return cookies
 	}
@@ -324,12 +324,12 @@ func (j *Jar) cookies(u *url.URL, now time.Time) (cookies []*http.Cookie) {
 // have Domain, Expires, HttpOnly, Name, Secure, Path, and Value filled
 // out. Expired cookies will not be returned. This function does not
 // modify the cookie jar.
-func (j *Jar) AllCookies() (cookies []*http.Cookie) {
-	return j.allCookies(time.Now())
+func (j *Jar) AllCookies() []*http.Cookie {
+	return j.allCookiesAtTime(time.Now())
 }
 
 // allCookies is like AllCookies but takes the current time as a parameter.
-func (j *Jar) allCookies(now time.Time) []*http.Cookie {
+func (j *Jar) allCookiesAtTime(now time.Time) []*http.Cookie {
 	var selected []entry
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -407,7 +407,14 @@ var expiryRemovalDuration = 24 * time.Hour
 // DeleteExpired deletes all entries that have expired for long enough
 // that we can actually expect there to be no external copies of it that
 // might resurrect the dead cookie.
-func (j *Jar) DeleteExpired(now time.Time) {
+func (j *Jar) DeleteExpired() {
+	j.deleteExpiredAtTime(time.Now())
+}
+
+// deleteExpired deletes all entries that have expired for long enough
+// that we can actually expect there to be no external copies of it that
+// might resurrect the dead cookie.
+func (j *Jar) deleteExpiredAtTime(now time.Time) {
 	for tld, submap := range j.entries {
 		for id, e := range submap {
 			if e.Expires.Before(now) || e.LastAccess.Add(expiryRemovalDuration).Before(now) {
@@ -468,11 +475,11 @@ func (j *Jar) RemoveAll() {
 //
 // It does nothing if the URL's scheme is not HTTP or HTTPS.
 func (j *Jar) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	j.setCookies(u, cookies, time.Now())
+	j.setCookiesAtTime(u, cookies, time.Now())
 }
 
 // setCookies is like SetCookies but takes the current time as parameter.
-func (j *Jar) setCookies(u *url.URL, cookies []*http.Cookie, now time.Time) {
+func (j *Jar) setCookiesAtTime(u *url.URL, cookies []*http.Cookie, now time.Time) {
 	if len(cookies) == 0 {
 		return
 	}
@@ -493,7 +500,7 @@ func (j *Jar) setCookies(u *url.URL, cookies []*http.Cookie, now time.Time) {
 
 	submap := j.entries[key]
 	for _, cookie := range cookies {
-		e, err := j.newEntry(cookie, now, defPath, host)
+		e, err := j.newEntryAtTime(cookie, now, defPath, host)
 		if err != nil {
 			continue
 		}
@@ -600,7 +607,7 @@ func defaultPath(path string) string {
 // e.id (which depends on e's Name, Domain and Path).
 //
 // A malformed c.Domain will result in an error.
-func (j *Jar) newEntry(c *http.Cookie, now time.Time, defPath, host string) (e entry, err error) {
+func (j *Jar) newEntryAtTime(c *http.Cookie, now time.Time, defPath, host string) (e entry, err error) {
 	e.Name = c.Name
 	if c.Path == "" || c.Path[0] != '/' {
 		e.Path = defPath
