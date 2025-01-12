@@ -1538,8 +1538,8 @@ func TestDeleteExpired(t *testing.T) {
 	// Ensure that they've timed out but their entries
 	// are still around before the cutoff period.
 	jar.DeleteExpired(now)
-	got = allCookiesIncludingExpired(jar, now)
-	want = "a= b=b c="
+	got = allCookies(jar, now)
+	want = "b=b"
 	if got != want {
 		t.Errorf("Unexpected content\ngot  %q\nwant %q", got, want)
 	}
@@ -1548,8 +1548,8 @@ func TestDeleteExpired(t *testing.T) {
 	// been removed now.
 	now = now.Add(2 * time.Millisecond)
 	jar.DeleteExpired(now)
-	got = allCookiesIncludingExpired(jar, now)
-	want = "b=b"
+	got = allCookies(jar, now)
+	want = ""
 	if got != want {
 		t.Errorf("Unexpected content\ngot  %q\nwant %q", got, want)
 	}
@@ -1665,7 +1665,7 @@ func TestLoadSaveWithNoPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := allCookiesIncludingExpired(jar, tNow); got != "" {
+	if got := allCookies(jar, tNow); got != "" {
 		t.Errorf("Cookies unexpectedly loaded: %v", got)
 	}
 
@@ -1927,25 +1927,6 @@ func allCookies(jar *Jar, now time.Time) string {
 				continue
 			}
 			cs = append(cs, cookie.Name+"="+cookie.Value)
-		}
-	}
-	sort.Strings(cs)
-	return strings.Join(cs, " ")
-}
-
-// allCookiesIncludingExpired returns all cookies in the jar
-// in the form "name1=val1 name2=val2"
-// (entries sorted by string), including cookies that
-// have expired (without their values)
-func allCookiesIncludingExpired(jar *Jar, now time.Time) string {
-	var cs []string
-	for _, submap := range jar.entries {
-		for _, cookie := range submap {
-			if !cookie.Expires.After(now) {
-				cs = append(cs, cookie.Name+"=")
-			} else {
-				cs = append(cs, cookie.Name+"="+cookie.Value)
-			}
 		}
 	}
 	sort.Strings(cs)
