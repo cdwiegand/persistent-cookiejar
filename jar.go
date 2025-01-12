@@ -320,10 +320,22 @@ func (j *Jar) cookiesAtTime(u *url.URL, now time.Time) (cookies []*http.Cookie) 
 
 	sort.Sort(byPathLength(selected))
 	for _, e := range selected {
-		cookies = append(cookies, &http.Cookie{Name: e.Name, Value: e.Value})
+		cookies = append(cookies, e.ConvertEntryToCookie())
 	}
 
 	return cookies
+}
+
+func (e *entry) ConvertEntryToCookie() *http.Cookie {
+	ret := &http.Cookie{
+		Name:    e.Name,
+		Value:   e.Value,
+		Path:    e.Path,
+		Domain:  e.Domain,
+		Expires: e.Expires,
+		Secure:  e.Secure,
+	}
+	return ret
 }
 
 // AllCookies returns all cookies in the jar. The returned cookies will
