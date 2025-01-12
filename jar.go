@@ -159,9 +159,15 @@ type entry struct {
 	Secure     bool
 	HttpOnly   bool
 	Persistent bool
-	HostOnly   bool
 	Expires    time.Time
 	Creation   time.Time
+
+	// is this cookie valid only for the given host (or can it apply to subdomains?)
+	// this helps prevent setting a cookie for .com from 123.com and then
+	// accessing it by abc.com
+	HostOnly bool
+
+	// when was the last time we accessed the cookie, so we can "renew" its deletion window
 	LastAccess time.Time
 
 	// Updated records when the cookie was updated.
