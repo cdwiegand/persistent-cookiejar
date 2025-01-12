@@ -14,9 +14,7 @@ import (
 	"sort"
 	"time"
 
-	"gopkg.in/retry.v1"
-
-	filelock "go4.org/lock"
+	"github.com/rogpeppe/go-internal/lockedfile"
 )
 
 // Save saves the cookies to the persistent cookie file.
@@ -41,12 +39,7 @@ func (j *Jar) MarshalJSON() ([]byte, error) {
 
 // save is like Save but takes the current time as a parameter.
 func (j *Jar) save(now time.Time) error {
-	locked, err := lockFile(lockFileName(j.filename))
-	if err != nil {
-		return fmt.Errorf("cannot lock cookie file: %w", err)
-	}
-	defer locked.Close()
-	f, err := os.OpenFile(j.filename, os.O_RDWR|os.O_CREATE, 0600)
+	f, err := lockedfile.OpenFile(j.filename, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return fmt.Errorf("cannot open cookie file: %w", err)
 	}
@@ -79,12 +72,7 @@ func (j *Jar) load() error {
 		// to acquire the lock.
 		return nil
 	}
-	locked, err := lockFile(lockFileName(j.filename))
-	if err != nil {
-		return fmt.Errorf("cannot lock cookie file: %w", err)
-	}
-	defer locked.Close()
-	f, err := os.Open(j.filename)
+	f, err := lockedfile.Open(j.filename)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -144,29 +132,4 @@ func (j *Jar) allEntriesToPersist() []entry {
 	}
 	sort.Sort(byCanonicalHost{entries})
 	return entries
-}
-
-// lockFileName returns the name of the lock file associated with
-// the given path.
-func lockFileName(path string) string {
-	return path + ".lock"
-}
-
-var attempt = retry.LimitTime(3*time.Second, retry.Exponential{
-	Initial:  100 * time.Microsecond,
-	Factor:   1.5,
-	MaxDelay: 100 * time.Millisecond,
-})
-
-func lockFile(path string) (io.Closer, error) {
-	for a := retry.Start(attempt, nil); a.Next(); {
-		locker, err := filelock.Lock(path)
-		if err == nil {
-			return locker, nil
-		}
-		if !a.More() {
-			return nil, fmt.Errorf("file locked for too long; giving up: %w", err)
-		}
-	}
-	panic("unreachable")
 }
