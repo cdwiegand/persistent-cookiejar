@@ -39,7 +39,7 @@ func encode(prefix, s string) (string, error) {
 	for _, r := range s {
 		if r < 0x80 {
 			b++
-			output = append(output, byte(r))
+			output = append(output, byte(r)) // #nosec G115 -- r < 0x80, fits in a byte
 		} else {
 			remaining++
 		}

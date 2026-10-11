@@ -327,13 +327,16 @@ func (j *Jar) cookiesAtTime(u *url.URL, now time.Time) (cookies []*http.Cookie) 
 }
 
 func (e *entry) ConvertEntryToCookie() *http.Cookie {
-	ret := &http.Cookie{
-		Name:    e.Name,
-		Value:   e.Value,
-		Path:    e.Path,
-		Domain:  e.Domain,
-		Expires: e.Expires,
-		Secure:  e.Secure,
+	// The jar is client-side: it reports cookies as the server set them, so
+	// forcing Secure/HttpOnly/SameSite here would misrepresent stored state.
+	ret := &http.Cookie{ // #nosec G124 -- attributes mirror the stored cookie
+		Name:     e.Name,
+		Value:    e.Value,
+		Path:     e.Path,
+		Domain:   e.Domain,
+		Expires:  e.Expires,
+		Secure:   e.Secure,
+		HttpOnly: e.HttpOnly,
 	}
 	return ret
 }
@@ -366,15 +369,7 @@ func (j *Jar) allCookiesAtTime(now time.Time) []*http.Cookie {
 	for i, e := range selected {
 		// Note: The returned cookies do not contain sufficient
 		// information to recreate the database.
-		cookies[i] = &http.Cookie{
-			Name:     e.Name,
-			Value:    e.Value,
-			Path:     e.Path,
-			Domain:   e.Domain,
-			Expires:  e.Expires,
-			Secure:   e.Secure,
-			HttpOnly: e.HttpOnly,
-		}
+		cookies[i] = e.ConvertEntryToCookie()
 	}
 
 	return cookies
