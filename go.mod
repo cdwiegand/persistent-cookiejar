@@ -1,6 +1,6 @@
 module github.com/cdwiegand/persistent-cookiejar
 
-go 1.27
+go 1.27.0
 
 require (
 	github.com/frankban/quicktest v1.14.6

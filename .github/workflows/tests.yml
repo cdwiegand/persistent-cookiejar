@@ -14,7 +14,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          go-version: stable
           check-latest: true
       - name: Install dependencies
         run: go mod download
@@ -23,6 +23,8 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Run Gosec Security Scanner
-        # Run with the job's Go toolchain; the gosec Docker action bundles its
-        # own Go, which can lag behind the version go.mod requires.
+        # gosec v2.29.0's x/tools cannot read Go 1.27.2+ export data ("export
+        # data version 5"); pin the toolchain for this step until gosec updates.
+        env:
+          GOTOOLCHAIN: go1.27.1
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
