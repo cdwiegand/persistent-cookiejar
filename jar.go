@@ -17,7 +17,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -129,7 +128,7 @@ func newAtTime(o *Options, now time.Time) (*Jar, error) {
 		if jar.filename = o.Filename; jar.filename == "" {
 			jar.filename = DefaultCookieFile()
 		}
-		if err := jar.load(); err != nil {
+		if err := jar.load(now); err != nil {
 			return nil, fmt.Errorf("cannot load cookies: %w", err)
 		}
 	}
@@ -137,12 +136,14 @@ func newAtTime(o *Options, now time.Time) (*Jar, error) {
 	return jar, nil
 }
 
-// homeDir returns the OS-specific home path as specified in the environment.
+// homeDir returns the current user's home directory, or "" if it cannot
+// be determined.
 func homeDir() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("HOMEDRIVE"), os.Getenv("HOMEPATH"))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
 	}
-	return os.Getenv("HOME")
+	return home
 }
 
 // entry is the internal representation of a cookie.
@@ -383,16 +384,22 @@ func (j *Jar) RemoveCookie(c *http.Cookie) {
 	id := id(c.Domain, c.Path, c.Name)
 	key := jarKey(c.Domain, j.psList)
 	if e, ok := j.entries[key][id]; ok {
+		now := time.Now()
 		e.Value = ""
-		e.Expires = time.Now().Add(-1 * time.Second)
+		e.Expires = now.Add(-1 * time.Second)
+		e.Updated = now
 		j.entries[key][id] = e
 	}
 }
 
 // merge merges all the given entries into j. More recently changed
-// cookies take precedence over older ones.
-func (j *Jar) merge(entries []entry) {
+// cookies take precedence over older ones. Entries with no LastAccess
+// (such as those written by older versions) are treated as accessed at now.
+func (j *Jar) merge(entries []entry, now time.Time) {
 	for _, e := range entries {
+		if e.LastAccess.IsZero() {
+			e.LastAccess = now
+		}
 		if e.CanonicalHost == "" {
 			continue
 		}
@@ -419,18 +426,29 @@ var expiryRemovalDuration = 24 * time.Hour
 
 // DeleteExpired deletes all entries that have expired for long enough
 // that we can actually expect there to be no external copies of it that
-// might resurrect the dead cookie.
+// might resurrect the dead cookie, and all entries that have not been
+// accessed within the removal window.
 func (j *Jar) DeleteExpired() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 	j.deleteExpiredAtTime(time.Now())
 }
 
-// deleteExpired deletes all entries that have expired for long enough
-// that we can actually expect there to be no external copies of it that
-// might resurrect the dead cookie.
+// deleteExpiredAtTime is like DeleteExpired but takes the current time as a
+// parameter. The caller must hold j.mu (or otherwise have exclusive access).
 func (j *Jar) deleteExpiredAtTime(now time.Time) {
 	for tld, submap := range j.entries {
 		for id, e := range submap {
-			if e.Expires.Before(now) || e.LastAccess.Add(expiryRemovalDuration).Before(now) {
+			var stale time.Time
+			if !e.Expires.After(now) {
+				// Keep expired entries around for a while after they
+				// last changed so that a merge with another jar that
+				// still holds the live cookie does not resurrect it.
+				stale = e.Updated
+			} else {
+				stale = e.LastAccess
+			}
+			if stale.Add(expiryRemovalDuration).Before(now) {
 				delete(submap, id)
 			}
 		}
@@ -451,7 +469,8 @@ func (j *Jar) RemoveAllHost(host string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	expired := time.Now().Add(-1 * time.Second)
+	now := time.Now()
+	expired := now.Add(-1 * time.Second)
 	submap := j.entries[key]
 	for id, e := range submap {
 		if e.CanonicalHost == host {
@@ -461,6 +480,7 @@ func (j *Jar) RemoveAllHost(host string) {
 			// we merge with another cookie jar.
 			e.Value = ""
 			e.Expires = expired
+			e.Updated = now
 			submap[id] = e
 		}
 	}
@@ -468,7 +488,8 @@ func (j *Jar) RemoveAllHost(host string) {
 
 // RemoveAll removes all the cookies from the jar.
 func (j *Jar) RemoveAll() {
-	expired := time.Now().Add(-1 * time.Second)
+	now := time.Now()
+	expired := now.Add(-1 * time.Second)
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	for _, submap := range j.entries {
@@ -479,6 +500,7 @@ func (j *Jar) RemoveAll() {
 			// we merge with another cookie jar.
 			e.Value = ""
 			e.Expires = expired
+			e.Updated = now
 			submap[id] = e
 		}
 	}

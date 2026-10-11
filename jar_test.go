@@ -1554,6 +1554,113 @@ func TestDeleteExpired(t *testing.T) {
 	}
 }
 
+func TestDeleteExpiredConcurrent(t *testing.T) {
+	// DeleteExpired must take the jar's lock; without it this
+	// fails with "concurrent map iteration and map write".
+	jar := newTestJar("", false)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20000; i++ {
+			jar.DeleteExpired()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20000; i++ {
+			setCookies(jar, fmt.Sprintf("http://foo%d.com", i%50), []string{"a=a; max-age=10"}, time.Now())
+		}
+	}()
+	wg.Wait()
+}
+
+func TestDeleteExpiredKeepsRecentTombstones(t *testing.T) {
+	jar := newTestJar("", false)
+	setCookies(jar, "http://foo.com", []string{"a=a; max-age=-1"}, tNow)
+	countEntries := func() int {
+		n := 0
+		for _, submap := range jar.entries {
+			n += len(submap)
+		}
+		return n
+	}
+
+	jar.deleteExpiredAtTime(tNow.Add(expiryRemovalDuration - time.Millisecond))
+	if n := countEntries(); n != 1 {
+		t.Fatalf("tombstone removed before the removal window ended: %d entries", n)
+	}
+	jar.deleteExpiredAtTime(tNow.Add(expiryRemovalDuration + time.Millisecond))
+	if n := countEntries(); n != 0 {
+		t.Fatalf("tombstone kept after the removal window ended: %d entries", n)
+	}
+}
+
+func TestLoadMissingLastAccess(t *testing.T) {
+	// Files written before LastAccess existed must not have all their
+	// cookies discarded on load.
+	c := qt.New(t)
+	file := filepath.Join(t.TempDir(), "cookies")
+	data := `[{"Name":"a","Value":"b","Domain":"foo.com","Path":"/","Persistent":true,` +
+		`"Expires":"9999-01-01T00:00:00Z","Updated":"2013-01-01T00:00:00Z","CanonicalHost":"foo.com"}]`
+	c.Assert(os.WriteFile(file, []byte(data), 0600), qt.IsNil)
+
+	jar := newTestJar(file, false)
+	c.Assert(allCookies(jar, time.Now()), qt.Equals, "a=b")
+	for _, submap := range jar.entries {
+		for _, e := range submap {
+			c.Assert(e.LastAccess.IsZero(), qt.IsFalse)
+		}
+	}
+}
+
+func TestRemoveDoesNotResurrect(t *testing.T) {
+	u := mustParseURL("http://foo.com")
+	removers := map[string]func(*Jar){
+		"RemoveCookie": func(j *Jar) {
+			j.RemoveCookie(&http.Cookie{Name: "a", Domain: "foo.com", Path: "/"})
+		},
+		"RemoveAllHost": func(j *Jar) { j.RemoveAllHost("foo.com") },
+		"RemoveAll":     func(j *Jar) { j.RemoveAll() },
+	}
+	for name, remove := range removers {
+		t.Run(name, func(t *testing.T) {
+			c := qt.New(t)
+			file := filepath.Join(t.TempDir(), "cookies")
+			jar0 := newTestJar(file, false)
+			// Set in the past so the removal is unambiguously newer.
+			setCookies(jar0, u.String(), []string{"a=a; max-age=3600"}, time.Now().Add(-time.Minute))
+			c.Assert(jar0.Save(), qt.IsNil)
+
+			// jar1 is another process holding a copy of the live cookie.
+			jar1 := newTestJar(file, false)
+			c.Assert(jar1.Cookies(u), qt.HasLen, 1)
+
+			remove(jar0)
+			c.Assert(jar0.Save(), qt.IsNil)
+			c.Assert(jar1.Save(), qt.IsNil)
+
+			c.Assert(jar1.Cookies(u), qt.HasLen, 0)
+			c.Assert(newTestJar(file, false).Cookies(u), qt.HasLen, 0)
+		})
+	}
+}
+
+func TestDefaultCookieFile(t *testing.T) {
+	t.Setenv("GOCOOKIES", "/some/where")
+	if got := DefaultCookieFile(); got != "/some/where" {
+		t.Errorf("with $GOCOOKIES set got %q", got)
+	}
+	t.Setenv("GOCOOKIES", "")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home directory available")
+	}
+	if got, want := DefaultCookieFile(), filepath.Join(home, ".go-cookies"); got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+}
+
 var serializeTestCookies = []*http.Cookie{{
 	Name:       "foo",
 	Value:      "bar",

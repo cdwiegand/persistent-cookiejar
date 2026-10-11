@@ -17,12 +17,12 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Install dependencies
-        run: go get .
+        run: go mod download
       - name: Build
         run: go build -v ./...
-      - name: Test go-curling
-        run: go test ./...
+      - name: Test
+        run: go test -race ./...
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.29.0
         with:
           args: ./...
