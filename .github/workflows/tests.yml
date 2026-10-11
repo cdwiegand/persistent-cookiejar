@@ -23,6 +23,6 @@ jobs:
       - name: Test
         run: go test -race ./...
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@v2.29.0
-        with:
-          args: ./...
+        # Run with the job's Go toolchain; the gosec Docker action bundles its
+        # own Go, which can lag behind the version go.mod requires.
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
