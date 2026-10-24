@@ -287,8 +287,11 @@ var domainAndTypeTests = [...]struct {
 	{"foo.sso.example.com", "sso.example.com", "sso.example.com", false, nil},
 	{"bar.co.uk", "bar.co.uk", "bar.co.uk", false, nil},
 	{"foo.bar.co.uk", ".bar.co.uk", "bar.co.uk", false, nil},
-	{"127.0.0.1", "127.0.0.1", "", false, errNoHostname},
-	{"2001:4860:0:2001::68", "2001:4860:0:2001::68", "2001:4860:0:2001::68", false, errNoHostname},
+	{"127.0.0.1", "127.0.0.1", "127.0.0.1", true, nil},
+	{"2001:4860:0:2001::68", "2001:4860:0:2001::68", "2001:4860:0:2001::68", true, nil},
+	{"127.0.0.1", "127.0.0.2", "", false, errIllegalDomain},
+	{"127.0.0.1", ".127.0.0.1", "", false, errIllegalDomain},
+	{"2001:4860:0:2001::68", "2001:4860:0:2001::69", "", false, errIllegalDomain},
 	{"www.example.com", ".", "", false, errMalformedDomain},
 	{"www.example.com", "..", "", false, errMalformedDomain},
 	{"www.example.com", "other.com", "", false, errIllegalDomain},
@@ -829,8 +832,8 @@ var chromiumBasicsTests = [...]jarTest{
 		"TestIpAddress #3.",
 		"http://1.2.3.4/foo",
 		[]string{"a=1; domain=1.2.3.4"},
-		"",
-		[]query{{"http://1.2.3.4/foo", ""}},
+		"a=1",
+		[]query{{"http://1.2.3.4/foo", "a=1"}},
 	},
 	{
 		"TestNonDottedAndTLD #2.",
@@ -1543,12 +1546,12 @@ func TestDeleteExpired(t *testing.T) {
 		t.Errorf("Unexpected content\ngot  %q\nwant %q", got, want)
 	}
 
-	// Try just after the expiry duration. The entries should really have
-	// been removed now.
+	// Expired entries are removed; the unexpired cookie is retained even
+	// though it has not been accessed within the removal window.
 	now = now.Add(2 * time.Millisecond)
 	jar.deleteExpiredAtTime(now)
 	got = allCookies(jar, now)
-	want = ""
+	want = "b=b"
 	if got != want {
 		t.Errorf("Unexpected content\ngot  %q\nwant %q", got, want)
 	}

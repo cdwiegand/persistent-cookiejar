@@ -12,6 +12,7 @@ package cookiejar
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -168,7 +169,8 @@ type entry struct {
 	// accessing it by abc.com
 	HostOnly bool
 
-	// when was the last time we accessed the cookie, so we can "renew" its deletion window
+	// LastAccess records usage for callers inspecting the serialized jar.
+	// It does not affect expiry or removal.
 	LastAccess time.Time
 
 	// Updated records when the cookie was updated.
@@ -416,8 +418,14 @@ func (j *Jar) merge(entries []entry, now time.Time) {
 			continue
 		}
 		oldEntry, ok := submap[id]
+		if ok && oldEntry.LastAccess.After(e.LastAccess) {
+			e.LastAccess = oldEntry.LastAccess
+		}
 		if !ok || e.Updated.After(oldEntry.Updated) {
 			submap[id] = e
+		} else if e.LastAccess.After(oldEntry.LastAccess) {
+			oldEntry.LastAccess = e.LastAccess
+			submap[id] = oldEntry
 		}
 	}
 }
@@ -426,8 +434,8 @@ var expiryRemovalDuration = 24 * time.Hour
 
 // DeleteExpired deletes all entries that have expired for long enough
 // that we can actually expect there to be no external copies of it that
-// might resurrect the dead cookie, and all entries that have not been
-// accessed within the removal window.
+// might resurrect the dead cookie. Unexpired cookies are retained regardless
+// of when they were last accessed.
 func (j *Jar) DeleteExpired() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -439,16 +447,7 @@ func (j *Jar) DeleteExpired() {
 func (j *Jar) deleteExpiredAtTime(now time.Time) {
 	for tld, submap := range j.entries {
 		for id, e := range submap {
-			var stale time.Time
-			if !e.Expires.After(now) {
-				// Keep expired entries around for a while after they
-				// last changed so that a merge with another jar that
-				// still holds the live cookie does not resurrect it.
-				stale = e.Updated
-			} else {
-				stale = e.LastAccess
-			}
-			if stale.Add(expiryRemovalDuration).Before(now) {
+			if !e.Expires.After(now) && e.Updated.Add(expiryRemovalDuration).Before(now) {
 				delete(submap, id)
 			}
 		}
@@ -657,9 +656,19 @@ func (j *Jar) newEntryAtTime(c *http.Cookie, now time.Time, defPath, host string
 	// MaxAge takes precedence over Expires.
 	if c.MaxAge != 0 {
 		e.Persistent = true
-		e.Expires = now.Add(time.Duration(c.MaxAge) * time.Second)
 		if c.MaxAge < 0 {
+			e.Expires = now.Add(-time.Second)
 			return e, nil
+		}
+		// Cap the duration at the maximum signed integer value before
+		// converting seconds to nanoseconds, which could otherwise overflow.
+		age := time.Duration(math.MaxInt64)
+		if int64(c.MaxAge) <= math.MaxInt64/int64(time.Second) {
+			age = time.Duration(c.MaxAge) * time.Second
+		}
+		e.Expires = now.Add(age)
+		if e.Expires.After(endOfTime) {
+			e.Expires = endOfTime
 		}
 	} else if c.Expires.IsZero() {
 		e.Expires = endOfTime
@@ -681,7 +690,6 @@ func (j *Jar) newEntryAtTime(c *http.Cookie, now time.Time, defPath, host string
 var (
 	errIllegalDomain   = errors.New("cookiejar: illegal cookie domain attribute")
 	errMalformedDomain = errors.New("cookiejar: malformed cookie domain attribute")
-	errNoHostname      = errors.New("cookiejar: no host name available (IP only)")
 )
 
 // endOfTime is the time when session (non-persistent) cookies expire.
@@ -698,10 +706,10 @@ func (j *Jar) domainAndType(host, domain string) (string, bool, error) {
 	}
 
 	if isIP(host) {
-		// According to RFC 6265 domain-matching includes not being
-		// an IP address.
-		// TODO: This might be relaxed as in common browsers.
-		return "", false, errNoHostname
+		if host != domain {
+			return "", false, errIllegalDomain
+		}
+		return host, true, nil
 	}
 
 	// From here on: If the cookie is valid, it is a domain cookie (with

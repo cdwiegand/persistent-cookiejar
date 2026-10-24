@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rogpeppe/go-internal/lockedfile"
+	"github.com/rogpeppe/go-internal/robustio"
 )
 
 // Save saves the cookies to the persistent cookie file.
@@ -32,35 +33,52 @@ func (j *Jar) Save() error {
 func (j *Jar) MarshalJSON() ([]byte, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	// Marshaling entries can never fail.
-	data, _ := json.Marshal(j.allEntriesToPersist())
-	return data, nil
+	return json.Marshal(j.allEntriesToPersist())
 }
 
 // save is like Save but takes the current time as a parameter.
 func (j *Jar) save(now time.Time) error {
-	f, err := lockedfile.OpenFile(j.filename, os.O_RDWR|os.O_CREATE, 0600)
+	// Lock a stable sidecar: replacing the data file also replaces its inode,
+	// so locking the data file itself would allow writers to bypass each other.
+	lock, err := lockedfile.OpenFile(j.filename+".lock", os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
-		return fmt.Errorf("cannot open cookie file: %w", err)
+		return fmt.Errorf("cannot lock cookie file: %w", err)
 	}
-	defer f.Close()
+	defer lock.Close()
 	// TODO optimization: if the file hasn't changed since we
 	// loaded it, don't bother with the merge step.
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	if err := j.mergeFrom(f, now); err != nil {
-		// The cookie file is probably corrupt.
-		log.Printf("cannot read cookie file to merge it; ignoring it: %v", err)
+	if err := j.load(now); err != nil {
+		return err
 	}
 	j.deleteExpiredAtTime(now)
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("cannot truncate file: %w", err)
+	return j.replaceFile()
+}
+
+// replaceFile writes and syncs a complete replacement before changing the
+// destination. The caller holds both j.mu and the sidecar file lock.
+func (j *Jar) replaceFile() error {
+	f, err := os.CreateTemp(filepath.Dir(j.filename), "."+filepath.Base(j.filename)+"-*.tmp")
+	if err != nil {
+		return fmt.Errorf("cannot create cookie file: %w", err)
 	}
-	if _, err := f.Seek(0, 0); err != nil {
-		return fmt.Errorf("cannot seek to beginning of cookie file: %w", err)
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err := j.writeTo(f); err != nil {
+		return fmt.Errorf("cannot encode cookie file: %w", err)
 	}
-	return j.writeTo(f)
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("cannot sync cookie file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("cannot close cookie file: %w", err)
+	}
+	if err := robustio.Rename(f.Name(), j.filename); err != nil {
+		return fmt.Errorf("cannot replace cookie file: %w", err)
+	}
+	return nil
 }
 
 // load loads the cookies from j.filename. If the file does not exist,
@@ -125,9 +143,14 @@ func (j *Jar) allEntriesToPersist() []entry {
 	var entries []entry
 	for _, submap := range j.entries {
 		for _, e := range submap {
-			if j.persistSessionCookies || e.Persistent {
-				entries = append(entries, e)
+			if !j.persistSessionCookies && !e.Persistent {
+				// Do not persist session values, but record their replacement
+				// of any older persistent version held by another process.
+				e.Value = ""
+				e.Persistent = true
+				e.Expires = e.Updated
 			}
+			entries = append(entries, e)
 		}
 	}
 	sort.Sort(byCanonicalHost{entries})
